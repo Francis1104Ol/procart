@@ -81,6 +81,16 @@ PostgreSQL provides the query planning and inspection tools needed to measure ho
 
 It also gives us multiple indexing strategies to evaluate as the search workload develops.
 
+### Dedicated search-engine alternative
+
+Elasticsearch or OpenSearch was considered as a dedicated search layer.
+
+For version one, PostgreSQL remains the source of truth because the catalogue workload is not only keyword search. It also includes structured filters, price ranges, stock state, sorting, pagination, and writes.
+
+Introducing a second datastore would add a synchronization and operational burden before there is evidence that PostgreSQL cannot meet the required workload.
+
+A dedicated search engine should be reconsidered if controlled measurements show that PostgreSQL consistently fails the agreed search-performance target at the intended catalogue scale after query shape, indexes, query plans, statistics, schema, database resources, and application overhead have been properly evaluated.
+
 ### Alternatives considered
 
 #### MongoDB
@@ -144,13 +154,11 @@ The catalogue service is responsible for catalogue concerns such as:
 - sorting
 - pagination
 
-Payment functionality is a separate concern.
+Payment, checkout, and account functionality are separate concerns and do not participate in the catalogue query path.
 
 A future payment or checkout change should therefore not require changes to the catalogue query implementation unless there is an explicit product requirement connecting the two.
 
-This separation keeps the search workload independently measurable.
-
----
+This separation keeps the catalogue search workload independently measurable and allows catalogue performance work to evolve without coupling it to payment processing.
 
 ## 6. Initial Search Hypothesis
 
@@ -223,3 +231,4 @@ The PostgreSQL decision should be reconsidered only when controlled experiments 
 and the representative workload still consistently fails the agreed performance target at the intended scale.
 
 The decision must be based on repeatable measurements rather than assumptions or preference.
+
