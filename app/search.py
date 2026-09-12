@@ -1,17 +1,28 @@
 from fastapi import APIRouter, HTTPException, Query
+from fastapi.responses import ORJSONResponse
 from sqlalchemy import select, text
-import orjson
-from fastapi import Response
+
 from app.db import create_db_engine
 from app.models.product import Product
-from fastapi.responses import ORJSONResponse
 
 
 router = APIRouter()
 engine = create_db_engine()
 
 
-@router.get("/products/search",   response_class=ORJSONResponse)
+def escape_like_pattern(value: str) -> str:
+    return (
+        value
+        .replace("\\", "\\\\")
+        .replace("%", "\\%")
+        .replace("_", "\\_")
+    )
+
+
+@router.get(
+    "/products/search",
+    response_class=ORJSONResponse,
+)
 def search_products(q: str = Query(...)):
     keyword = q.strip()
 
@@ -20,6 +31,8 @@ def search_products(q: str = Query(...)):
             status_code=400,
             detail="Search keyword must not be empty.",
         )
+
+    escaped_keyword = escape_like_pattern(keyword)
 
     statement = (
         select(
@@ -31,12 +44,19 @@ def search_products(q: str = Query(...)):
             Product.stock_quantity,
             Product.stock_state,
         )
-        .where(Product.name.ilike(f"%{keyword}%"))
+        .where(
+            Product.name.ilike(
+                f"%{escaped_keyword}%",
+                escape="\\",
+            )
+        )
         .order_by(Product.id.asc())
     )
 
     with engine.connect() as connection:
-        connection.execute(text("SET LOCAL work_mem = '16MB'"))
+        connection.execute(
+            text("SET LOCAL work_mem = '16MB'")
+        )
         rows = connection.execute(statement).mappings().all()
 
     products = [
@@ -53,9 +73,9 @@ def search_products(q: str = Query(...)):
     ]
 
     return ORJSONResponse(
-    content={
-        "query": keyword,
-        "count": len(products),
-        "products": products,
-    }
-)
+        content={
+            "query": keyword,
+            "count": len(products),
+            "products": products,
+        }
+    )

@@ -176,3 +176,32 @@ def test_search_rejects_missing_query(search_client):
     response = search_client.get("/products/search")
 
     assert response.status_code == 422
+
+def test_search_treats_percent_as_literal(search_client):
+    response = search_client.get(
+        "/products/search",
+        params={"q": "%"},
+    )
+
+    assert response.status_code == 200
+
+    body = response.json()
+
+    assert body["query"] == "%"
+    assert body["count"] == 0
+    assert body["products"] == []
+
+
+def test_search_treats_underscore_as_literal(search_client):
+    response = search_client.get(
+        "/products/search",
+        params={"q": "_"},
+    )
+
+    assert response.status_code == 200
+
+    body = response.json()
+
+    assert body["query"] == "_"
+    assert body["count"] == 0
+    assert body["products"] == []
