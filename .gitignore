@@ -146,3 +146,6 @@ __pycache__/
 .pytest_cache/
 *.pyc
 .env
+
+build/
+*.egg-info/
