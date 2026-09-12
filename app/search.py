@@ -31,7 +31,11 @@ def search_products(q: str = Query(...)):
             status_code=400,
             detail="Search keyword must not be empty.",
         )
-
+    if len(keyword) < 3:
+        raise HTTPException(
+        status_code=400,
+        detail="Search keyword must be at least 3 characters.",
+    )
     escaped_keyword = escape_like_pattern(keyword)
 
     statement = (

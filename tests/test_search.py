@@ -61,6 +61,7 @@ def test_search_is_case_insensitive(search_client):
     assert upper_body["count"] == lower_body["count"]
     assert upper_body["products"] == lower_body["products"]
 
+
 def test_search_returns_known_rare_matches(search_client):
     response = search_client.get(
         "/products/search",
@@ -86,6 +87,7 @@ def test_search_matches_substring_anywhere(search_client):
             seed=20260911,
         )
     )
+
     seeded_products = [
         row
         for batch in batches
@@ -101,6 +103,7 @@ def test_search_matches_substring_anywhere(search_client):
     substring = target_name[2:7]
 
     assert substring
+    assert len(substring) >= 3
     assert not target_name.lower().startswith(substring.lower())
 
     response = search_client.get(
@@ -139,8 +142,14 @@ def test_search_uses_stable_id_order(search_client):
     first_products = first.json()["products"]
     second_products = second.json()["products"]
 
-    first_ids = [product["id"] for product in first_products]
-    second_ids = [product["id"] for product in second_products]
+    first_ids = [
+        product["id"]
+        for product in first_products
+    ]
+    second_ids = [
+        product["id"]
+        for product in second_products
+    ]
 
     assert first_ids == sorted(first_ids)
     assert first_ids == second_ids
@@ -173,35 +182,83 @@ def test_search_rejects_blank_query(search_client):
 
 
 def test_search_rejects_missing_query(search_client):
-    response = search_client.get("/products/search")
+    response = search_client.get(
+        "/products/search",
+    )
 
     assert response.status_code == 422
 
-def test_search_treats_percent_as_literal(search_client):
+
+def test_search_rejects_single_percent_keyword(search_client):
     response = search_client.get(
         "/products/search",
         params={"q": "%"},
     )
 
-    assert response.status_code == 200
-
-    body = response.json()
-
-    assert body["query"] == "%"
-    assert body["count"] == 0
-    assert body["products"] == []
+    assert response.status_code == 400
+    assert response.json() == {
+        "detail": "Search keyword must be at least 3 characters."
+    }
 
 
-def test_search_treats_underscore_as_literal(search_client):
+def test_search_rejects_single_underscore_keyword(search_client):
     response = search_client.get(
         "/products/search",
         params={"q": "_"},
+    )
+
+    assert response.status_code == 400
+    assert response.json() == {
+        "detail": "Search keyword must be at least 3 characters."
+    }
+
+
+def test_search_rejects_two_character_keyword(search_client):
+    response = search_client.get(
+        "/products/search",
+        params={"q": "Pr"},
+    )
+
+    assert response.status_code == 400
+    assert response.json() == {
+        "detail": "Search keyword must be at least 3 characters."
+    }
+
+
+def test_search_treats_percent_as_literal_in_valid_keyword(search_client):
+    response = search_client.get(
+        "/products/search",
+        params={"q": "50%"},
     )
 
     assert response.status_code == 200
 
     body = response.json()
 
-    assert body["query"] == "_"
-    assert body["count"] == 0
-    assert body["products"] == []
+    for product in body["products"]:
+        assert "50%" in product["name"].lower()
+
+
+def test_search_treats_underscore_as_literal_in_valid_keyword(
+    search_client,
+):
+    response = search_client.get(
+        "/products/search",
+        params={"q": "abc_def"},
+    )
+
+    assert response.status_code == 200
+
+    body = response.json()
+
+    for product in body["products"]:
+        assert "abc_def" in product["name"].lower()
+
+
+def test_escape_like_pattern_escapes_pattern_metacharacters():
+    from app.search import escape_like_pattern
+
+    assert (
+        escape_like_pattern(r"50%_off\sale")
+        == r"50\%\_off\\sale"
+    )

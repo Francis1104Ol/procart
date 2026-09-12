@@ -1,5 +1,3 @@
-# CAT-003 — Keyword Search Over Product Names
-
 ## Search semantics
 
 Endpoint:
@@ -13,17 +11,15 @@ and the escape character `\`, are escaped before the pattern is constructed.
 This means shopper input is interpreted as literal search text rather than
 as an SQL pattern.
 
-A blank keyword is rejected with HTTP 400. A missing query parameter is
-rejected with HTTP 422.
+Search keywords must contain at least three characters after surrounding
+whitespace is removed.
 
-## Stable ordering
+A blank keyword is rejected with HTTP 400. A one- or two-character keyword is
+also rejected with HTTP 400. A missing query parameter is rejected with HTTP
+422.
 
-Search results are returned in ascending product ID order:
-
-`ORDER BY products.id ASC`
-
-Product ID is unique, so repeated searches against unchanged catalogue data
-produce the same ordering.
+The three-character minimum is part of the API contract and aligns the
+accepted query space with the measured trigram-backed performance guarantee.
 
 ## Full-size benchmark
 
@@ -41,7 +37,10 @@ Final measured database execution time:
 
 328.551 ms
 
-This is below the CAT-003 database-query target of one second.
+CAT-003 accepts search keywords of at least three characters. The broad
+three-character `Pro` query completed in 328.551 ms at the full 500,000-row
+reference seed, below the one-second database-query target for accepted
+search inputs.
 
 The full unpaginated HTTP response is substantially larger: the broad query
 returns approximately 15.75 MB of JSON and was measured at approximately
@@ -102,11 +101,10 @@ The broad `Pro` query demonstrates the indexed three-character case:
 PostgreSQL selected a Bitmap Index Scan on `idx_products_name_trgm`, followed
 by a Bitmap Heap Scan and an in-memory quicksort by product ID.
 
-## Short-keyword boundary
+## Short-keyword boundary and API constraint
 
-A two-character search was also measured:
-
-`Pr`
+During investigation, the two-character query `Pr` was measured before the
+minimum-length constraint was introduced.
 
 Captured plan:
 
@@ -118,14 +116,18 @@ Captured plan:
     Planning Time: 4.436 ms
     Execution Time: 1771.276 ms
 
-For this two-character query, PostgreSQL did not use the trigram GIN index to
-narrow the search. The query scanned products in primary-key order and applied
-the ILIKE filter to the full catalogue.
+PostgreSQL did not use the trigram GIN index to narrow this query. Instead, it
+scanned the catalogue in primary-key order and applied the ILIKE filter across
+the full dataset.
 
-This contrasts with the three-character `Pro` query, where PostgreSQL used the
-GIN trigram index and completed in 328.551 ms.
+This exceeded CAT-003's one-second target.
 
-This demonstrates the practical lower-bound behaviour of trigram search:
-three-character terms can produce a normal trigram for index-assisted
-candidate narrowing, while shorter terms may require scanning substantially
-more of the table.
+The API therefore requires at least three characters for a search keyword.
+This prevents the endpoint from accepting an input shape that the chosen
+index cannot efficiently support while still allowing three-character and
+longer substring searches to use trigram-backed candidate narrowing.
+
+The contrast is measurable:
+
+- `Pr` — two characters — 1771.276 ms — full scan/filter path
+- `Pro` — three characters — 328.551 ms — trigram GIN bitmap path
