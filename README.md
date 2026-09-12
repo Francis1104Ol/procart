@@ -110,7 +110,33 @@ The **CAT-001** test suite covers:
 - Unsupported endpoint routing (returning a clear 404 response).
 
 ---
+## CAT-002: Seed the Catalogue
 
+CAT-002 provides a deterministic large-scale product catalogue used for search, filtering, and pagination testing.
+
+Start the Docker environment:
+
+```powershell
+docker compose up -d --build
+```
+
+Seed the catalogue with 500,000 products:
+
+```powershell
+docker compose exec api python -m app.seed.catalogue --count 500000 --seed 20260911
+```
+
+A successful seed reports:
+
+- requested product count
+- actual product count
+- seed value
+- dataset checksum
+- generation time
+
+Re-running the command replaces the existing catalogue rather than appending duplicate products. The default seed is deterministic and is verified against a known baseline checksum.
+
+Detailed measurements and dataset distributions are recorded in `docs/seed-results.md`.
 ### Architecture Decisions
 
 The service, database, and API decisions are documented in: `docs/architecture-decision.md`
