@@ -225,7 +225,48 @@ def test_search_rejects_two_character_keyword(search_client):
     }
 
 
-def test_search_treats_percent_as_literal_in_valid_keyword(search_client):
+def test_search_treats_percent_as_literal_in_valid_keyword(
+    search_client,
+):
+    from sqlalchemy import text
+
+    from app.db import create_db_engine
+
+    engine = create_db_engine()
+
+    with engine.begin() as connection:
+        connection.execute(
+            text(
+                """
+                INSERT INTO products (
+                    sku,
+                    name,
+                    category,
+                    price,
+                    stock_quantity,
+                    stock_state
+                )
+                VALUES
+                    (
+                        'TEST-PERCENT-001',
+                        'Save 50% Today',
+                        'Electronics',
+                        19.99,
+                        5,
+                        'IN_STOCK'
+                    ),
+                    (
+                        'TEST-PERCENT-002',
+                        'Save 50 Dollars Today',
+                        'Electronics',
+                        19.99,
+                        5,
+                        'IN_STOCK'
+                    )
+                """
+            )
+        )
+
     response = search_client.get(
         "/products/search",
         params={"q": "50%"},
@@ -235,13 +276,57 @@ def test_search_treats_percent_as_literal_in_valid_keyword(search_client):
 
     body = response.json()
 
-    for product in body["products"]:
-        assert "50%" in product["name"].lower()
+    names = [
+        product["name"]
+        for product in body["products"]
+    ]
+
+    assert "Save 50% Today" in names
+    assert "Save 50 Dollars Today" not in names
 
 
 def test_search_treats_underscore_as_literal_in_valid_keyword(
     search_client,
 ):
+    from sqlalchemy import text
+
+    from app.db import create_db_engine
+
+    engine = create_db_engine()
+
+    with engine.begin() as connection:
+        connection.execute(
+            text(
+                """
+                INSERT INTO products (
+                    sku,
+                    name,
+                    category,
+                    price,
+                    stock_quantity,
+                    stock_state
+                )
+                VALUES
+                    (
+                        'TEST-UNDERSCORE-001',
+                        'abc_def product',
+                        'Electronics',
+                        19.99,
+                        5,
+                        'IN_STOCK'
+                    ),
+                    (
+                        'TEST-UNDERSCORE-002',
+                        'abcXdef product',
+                        'Electronics',
+                        19.99,
+                        5,
+                        'IN_STOCK'
+                    )
+                """
+            )
+        )
+
     response = search_client.get(
         "/products/search",
         params={"q": "abc_def"},
@@ -251,8 +336,13 @@ def test_search_treats_underscore_as_literal_in_valid_keyword(
 
     body = response.json()
 
-    for product in body["products"]:
-        assert "abc_def" in product["name"].lower()
+    names = [
+        product["name"]
+        for product in body["products"]
+    ]
+
+    assert "abc_def product" in names
+    assert "abcXdef product" not in names
 
 
 def test_escape_like_pattern_escapes_pattern_metacharacters():
