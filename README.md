@@ -110,7 +110,60 @@ The **CAT-001** test suite covers:
 - Unsupported endpoint routing (returning a clear 404 response).
 
 ---
+## CAT-002: Seed the Catalogue
 
+CAT-002 provides a deterministic large-scale product catalogue used for search, filtering, and pagination testing.
+
+### Start the Environment
+
+```powershell
+docker compose up -d --build
+```
+
+### Seed the Catalogue
+
+Seed the catalogue with 500,000 products:
+
+```powershell
+docker compose exec api python -m app.seed.catalogue --count 500000 --seed 20260911
+```
+
+A successful seed reports:
+
+- requested product count
+- actual product count
+- seed value
+- dataset checksum
+- generation time
+
+Re-running the command replaces the existing catalogue rather than appending duplicate products. The default seed is deterministic and is verified against a known baseline checksum.
+
+Detailed measurements and dataset distributions are recorded in `docs/seed-results.md`.
+
+### Run the Seed Tests Safely
+
+The seed integration tests modify catalogue data and therefore must run against a dedicated disposable test database.
+
+Create the test database once:
+
+```powershell
+docker compose exec db psql -U procart -d postgres -c "CREATE DATABASE procart_test;"
+```
+
+Run the test suite against the dedicated test database:
+
+```powershell
+docker compose exec -e TEST_DATABASE_URL=postgresql+psycopg://procart:procart@db:5432/procart_test api python -m pytest
+```
+
+The seed integration tests refuse to run unless `TEST_DATABASE_URL` points to a database whose name ends with `_test`.
+
+The current test suite contains 6 tests, including verification that:
+
+- re-running the seed replaces rather than doubles the catalogue
+- repeated seeds produce the same checksum
+- the PostgreSQL identity sequence is synchronized after `COPY`
+- a normal insert after seeding receives the next available product ID
 ### Architecture Decisions
 
 The service, database, and API decisions are documented in: `docs/architecture-decision.md`
