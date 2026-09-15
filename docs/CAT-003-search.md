@@ -129,6 +129,36 @@ This initially motivated a proposed minimum search length of three characters.
 The minimum was then investigated as a product trade-off rather than assumed
 to be necessary.
 
+### Broad-result cost isolation
+
+The broad single-character `P` case was further measured using a count-only
+query to separate match discovery from full result materialization and
+ordering.
+
+The query:
+
+    SELECT count(*)
+    FROM products
+    WHERE name ILIKE '%P%';
+
+returned the same 416,584 matches with:
+
+    Execution Time: 357.801 ms
+
+By comparison, returning all 416,584 complete product rows in stable `id ASC`
+order measured:
+
+    Execution Time: 1178.558 ms
+
+This indicates that the observed one-second breach is not solely the cost of
+finding rows that contain `P`. A substantial part of the full-query workload
+comes from materializing and returning an extremely large unpaginated result
+set while preserving stable ordering.
+
+Pagination is outside CAT-003 and is owned by CAT-005. This measurement is
+therefore recorded as a boundary of the current unpaginated search shape
+rather than evidence that all single-character matching is inherently slow.
+
 ### Two-character alternative
 
 An experimental bigram representation was tested to determine whether
@@ -169,8 +199,10 @@ Three complete measurements were:
 
 All three were below the one-second database-query target.
 
-This demonstrates that rejecting all two-character searches is not technically
-required to meet the current 500,000-row performance target. A short-keyword
+This demonstrates that the measured two-character `Pr` case can meet the
+current 500,000-row database-query target with a different indexing strategy.
+It therefore weakens the case for rejecting all two-character searches solely
+because the existing trigram index cannot narrow them. A short-keyword
 indexing strategy can preserve two-character search, although it introduces
 additional index storage and write/maintenance cost that must be considered.
 
