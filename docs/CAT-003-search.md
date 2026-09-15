@@ -159,6 +159,33 @@ Pagination is outside CAT-003 and is owned by CAT-005. This measurement is
 therefore recorded as a boundary of the current unpaginated search shape
 rather than evidence that all single-character matching is inherently slow.
 
+
+### Experimental unigram index
+
+A unigram GIN index was also tested to determine whether a broad
+single-character search could be accelerated without rejecting the request.
+
+The experimental index occupied approximately 9.9 MB. For `P`, PostgreSQL
+used the unigram GIN index and returned the expected 416,584 matching rows.
+
+The complete query, including the final `ILIKE` correctness check and stable
+`id ASC` ordering, measured:
+
+    Execution Time: 1902.107 ms
+
+This was slower than the normal full-query measurement of 1178.558 ms.
+
+The index produced 416,584 candidate rows, approximately 83% of the
+500,000-row catalogue. At that selectivity, the additional bitmap-index and
+heap-processing work did not improve the full query.
+
+The unigram strategy was therefore rejected for the measured broad
+single-character case. The experimental unigram index and helper function
+were removed.
+
+This result reinforces that the remaining `P` performance boundary is tied
+to the very large unpaginated result set rather than simply the absence of
+an index capable of representing a one-character token.
 ### Two-character alternative
 
 An experimental bigram representation was tested to determine whether
