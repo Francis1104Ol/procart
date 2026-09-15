@@ -189,40 +189,146 @@ def test_search_rejects_missing_query(search_client):
     assert response.status_code == 422
 
 
-def test_search_rejects_single_percent_keyword(search_client):
-    response = search_client.get(
-        "/products/search",
-        params={"q": "%"},
-    )
-
-    assert response.status_code == 400
-    assert response.json() == {
-        "detail": "Search keyword must be at least 3 characters."
-    }
-
-
-def test_search_rejects_single_underscore_keyword(search_client):
-    response = search_client.get(
-        "/products/search",
-        params={"q": "_"},
-    )
-
-    assert response.status_code == 400
-    assert response.json() == {
-        "detail": "Search keyword must be at least 3 characters."
-    }
-
-
-def test_search_rejects_two_character_keyword(search_client):
+def test_search_accepts_two_character_keyword(search_client):
     response = search_client.get(
         "/products/search",
         params={"q": "Pr"},
     )
 
-    assert response.status_code == 400
-    assert response.json() == {
-        "detail": "Search keyword must be at least 3 characters."
-    }
+    assert response.status_code == 200
+
+    body = response.json()
+
+    assert body["query"] == "Pr"
+    assert body["count"] > 0
+
+    ids = [
+        product["id"]
+        for product in body["products"]
+    ]
+
+    assert ids == sorted(ids)
+
+    for product in body["products"]:
+        assert "pr" in product["name"].lower()
+
+
+def test_search_treats_single_percent_as_literal(search_client):
+    from sqlalchemy import text
+
+    from app.db import create_db_engine
+
+    engine = create_db_engine()
+
+    with engine.begin() as connection:
+        connection.execute(
+            text(
+                """
+                INSERT INTO products (
+                    sku,
+                    name,
+                    category,
+                    price,
+                    stock_quantity,
+                    stock_state
+                )
+                VALUES
+                    (
+                        'TEST-SINGLE-PERCENT-001',
+                        'Discount % Special',
+                        'Electronics',
+                        19.99,
+                        5,
+                        'IN_STOCK'
+                    ),
+                    (
+                        'TEST-SINGLE-PERCENT-002',
+                        'Discount Special',
+                        'Electronics',
+                        19.99,
+                        5,
+                        'IN_STOCK'
+                    )
+                """
+            )
+        )
+
+    response = search_client.get(
+        "/products/search",
+        params={"q": "%"},
+    )
+
+    assert response.status_code == 200
+
+    names = [
+        product["name"]
+        for product in response.json()["products"]
+    ]
+
+    assert "Discount % Special" in names
+    assert "Discount Special" not in names
+
+    for name in names:
+        assert "%" in name
+
+
+def test_search_treats_single_underscore_as_literal(search_client):
+    from sqlalchemy import text
+
+    from app.db import create_db_engine
+
+    engine = create_db_engine()
+
+    with engine.begin() as connection:
+        connection.execute(
+            text(
+                """
+                INSERT INTO products (
+                    sku,
+                    name,
+                    category,
+                    price,
+                    stock_quantity,
+                    stock_state
+                )
+                VALUES
+                    (
+                        'TEST-SINGLE-UNDERSCORE-001',
+                        'Model_X Product',
+                        'Electronics',
+                        19.99,
+                        5,
+                        'IN_STOCK'
+                    ),
+                    (
+                        'TEST-SINGLE-UNDERSCORE-002',
+                        'ModelAX Product',
+                        'Electronics',
+                        19.99,
+                        5,
+                        'IN_STOCK'
+                    )
+                """
+            )
+        )
+
+    response = search_client.get(
+        "/products/search",
+        params={"q": "_"},
+    )
+
+    assert response.status_code == 200
+
+    names = [
+        product["name"]
+        for product in response.json()["products"]
+    ]
+
+    assert "Model_X Product" in names
+    assert "ModelAX Product" not in names
+
+    for name in names:
+        assert "_" in name
 
 
 def test_search_treats_percent_as_literal_in_valid_keyword(

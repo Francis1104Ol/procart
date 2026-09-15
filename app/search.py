@@ -1,6 +1,6 @@
 from fastapi import APIRouter, HTTPException, Query
 from fastapi.responses import ORJSONResponse
-from sqlalchemy import select, text
+from sqlalchemy import func, select, text
 
 from app.db import create_db_engine
 from app.models.product import Product
@@ -31,12 +31,23 @@ def search_products(q: str = Query(...)):
             status_code=400,
             detail="Search keyword must not be empty.",
         )
-    if len(keyword) < 3:
-        raise HTTPException(
-        status_code=400,
-        detail="Search keyword must be at least 3 characters.",
-    )
+
     escaped_keyword = escape_like_pattern(keyword)
+
+    conditions = [
+        Product.name.ilike(
+            f"%{escaped_keyword}%",
+            escape="\\",
+        )
+    ]
+
+    if len(keyword) == 2:
+        conditions.insert(
+            0,
+            func.name_bigrams(Product.name).op("@>")(
+                [keyword.lower()]
+            ),
+        )
 
     statement = (
         select(
@@ -48,12 +59,7 @@ def search_products(q: str = Query(...)):
             Product.stock_quantity,
             Product.stock_state,
         )
-        .where(
-            Product.name.ilike(
-                f"%{escaped_keyword}%",
-                escape="\\",
-            )
-        )
+        .where(*conditions)
         .order_by(Product.id.asc())
     )
 

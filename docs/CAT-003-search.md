@@ -49,7 +49,7 @@ to meet the target.
 
 The full unpaginated HTTP response is substantially larger: the broad query
 returns approximately 15.75 MB of JSON and was measured at approximately
-1.31–2.04 seconds end-to-end. Pagination is intentionally deferred to
+1.31â€“2.04 seconds end-to-end. Pagination is intentionally deferred to
 CAT-005.
 
 ## Final query plan
@@ -232,9 +232,41 @@ It therefore weakens the case for rejecting all two-character searches solely
 because the existing trigram index cannot narrow them. A short-keyword
 indexing strategy can preserve two-character search, although it introduces
 additional index storage and write/maintenance cost that must be considered.
+### Production two-character path
 
+The successful bigram experiment was promoted into the application and
+migration path.
+
+For exactly two-character keywords, the application uses the bigram GIN
+index to narrow candidates and retains `ILIKE` as the final correctness
+check. Searches of three or more characters continue to use the existing
+substring predicate, while one-character searches remain valid without
+being rejected by an artificial minimum length.
+
+At 500,000 products, the production `Pr` query returned 200,137 rows and
+used:
+
+    Bitmap Index Scan on idx_products_name_bigram
+
+The measured database execution time was:
+
+    Execution Time: 862.413 ms
+
+This satisfies the current <=1 second database-query target for the measured
+two-character `Pr` case.
+
+The planner estimated 1,035 final rows while the query actually returned
+200,137. This cardinality-estimation error did not prevent the measured query
+from meeting the target, but it is recorded for later investigation under
+larger or concurrent workloads.
+
+The corresponding unpaginated HTTP request returned the same 200,137
+products but measured approximately 25.67 seconds end to end. This is not
+treated as evidence that the database lookup itself missed the query target:
+the database execution remained below one second, while the API had to
+materialize, serialize, and transfer more than 200,000 complete product
+records. Pagination is owned by CAT-005.
 ### One-character behaviour
-
 Single-character searches were also measured to determine whether keyword
 length itself was the limiting factor.
 
@@ -280,7 +312,7 @@ At 500,000 products:
 
 - Three-character `Pro`: 100,180 matches, trigram GIN, 328.551 ms.
 - Two-character `Pr`: 200,137 matches, original path, 2402.741 ms.
-- Two-character `Pr`: experimental bigram GIN, 615.604–766.909 ms.
+- Two-character `Pr`: experimental bigram GIN, 615.604â€“766.909 ms.
 - One-character `Q`: 49,880 matches, 537.638 ms.
 - One-character `P`: 416,584 matches, 1178.558 ms.
 - One-character `P`, forced sequential scan and sort: 1303.811 ms.
@@ -295,4 +327,3 @@ The bigram index remains an experimental result at this stage. Its read
 performance and 18 MB index size have been measured, but its write and
 maintenance cost have not yet been measured. It should not be treated as a
 production decision until those trade-offs are evaluated.
-
