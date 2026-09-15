@@ -11,16 +11,18 @@ and the escape character `\`, are escaped before the pattern is constructed.
 This means shopper input is interpreted as literal search text rather than
 as an SQL pattern.
 
-Search keywords must contain at least three characters after surrounding
-whitespace is removed.
+A blank keyword is rejected with HTTP 400. A missing query parameter is
+rejected with HTTP 422.
 
-A blank keyword is rejected with HTTP 400. A one- or two-character keyword is
-also rejected with HTTP 400. A missing query parameter is rejected with HTTP
-422.
+The current implementation temporarily rejects keywords shorter than three
+characters with HTTP 400. This restriction was introduced after the original
+two-character `Pr` query exceeded the one-second performance target.
 
-The three-character minimum is part of the API contract and aligns the
-accepted query space with the measured trigram-backed performance guarantee.
-
+The three-character minimum is not treated as an agreed product contract.
+Subsequent investigation demonstrated that two-character search can meet the
+target using an experimental bigram indexing strategy. The short-keyword
+design therefore remains under evaluation rather than being presented as a
+settled acceptance-criteria change.
 ## Full-size benchmark
 
 Reference catalogue size: 500,000 products.
@@ -37,10 +39,13 @@ Final measured database execution time:
 
 328.551 ms
 
-CAT-003 accepts search keywords of at least three characters. The broad
-three-character `Pro` query completed in 328.551 ms at the full 500,000-row
-reference seed, below the one-second database-query target for accepted
-search inputs.
+The broad three-character `Pro` query completed in 328.551 ms at the full
+500,000-row reference seed, below the one-second database-query target.
+
+This measurement demonstrates the performance of the existing trigram-backed
+path for this broad three-character query. It does not establish a general
+minimum keyword length or imply that shorter searches are inherently unable
+to meet the target.
 
 The full unpaginated HTTP response is substantially larger: the broad query
 returns approximately 15.75 MB of JSON and was measured at approximately
@@ -101,33 +106,134 @@ The broad `Pro` query demonstrates the indexed three-character case:
 PostgreSQL selected a Bitmap Index Scan on `idx_products_name_trgm`, followed
 by a Bitmap Heap Scan and an in-memory quicksort by product ID.
 
-## Short-keyword boundary and API constraint
+## Short-keyword performance investigation
 
-During investigation, the two-character query `Pr` was measured before the
-minimum-length constraint was introduced.
+The initial implementation used the same `ILIKE '%keyword%'` search shape for
+all keyword lengths.
 
-Captured plan:
+At the full 500,000-product reference seed, a two-character search for `Pr`
+returned 200,137 products but exceeded the one-second database-query target.
+
+Captured baseline:
 
     Index Scan using products_pkey on products
-      (actual time=0.443..1747.173 rows=200137 loops=1)
       Filter: ((name)::text ~~* '%Pr%'::text)
       Rows Removed by Filter: 299863
-      Buffers: shared hit=8264
-    Planning Time: 4.436 ms
-    Execution Time: 1771.276 ms
+    Execution Time: 2402.741 ms
 
-PostgreSQL did not use the trigram GIN index to narrow this query. Instead, it
-scanned the catalogue in primary-key order and applied the ILIKE filter across
-the full dataset.
+PostgreSQL could not use the existing trigram GIN index for normal candidate
+narrowing because the two-character search term did not provide a usable
+three-character trigram.
 
-This exceeded CAT-003's one-second target.
+This initially motivated a proposed minimum search length of three characters.
+The minimum was then investigated as a product trade-off rather than assumed
+to be necessary.
 
-The API therefore requires at least three characters for a search keyword.
-This prevents the endpoint from accepting an input shape that the chosen
-index cannot efficiently support while still allowing three-character and
-longer substring searches to use trigram-backed candidate narrowing.
+### Two-character alternative
 
-The contrast is measurable:
+An experimental bigram representation was tested to determine whether
+two-character substring searches could remain supported.
 
-- `Pr` — two characters — 1771.276 ms — full scan/filter path
-- `Pro` — three characters — 328.551 ms — trigram GIN bitmap path
+The experiment generated overlapping two-character sequences from the
+lower-cased product name and created a GIN index over those sequences.
+
+For example:
+
+    ProCart -> {pr,ro,oc,ca,ar,rt}
+
+Experimental index size:
+
+    18 MB
+
+The query used the bigram index for candidate narrowing while retaining the
+original `ILIKE '%Pr%'` predicate as the final correctness check.
+
+The captured plan included:
+
+    Bitmap Index Scan on idx_products_name_bigram_test
+      Index Cond: (name_bigrams((name)::text) @> '{pr}'::text[])
+
+    Bitmap Heap Scan on products
+      Recheck Cond: (name_bigrams((name)::text) @> '{pr}'::text[])
+      Filter: ((name)::text ~~* '%Pr%'::text)
+
+    Sort
+      Sort Key: id
+      Sort Method: quicksort
+
+Three complete measurements were:
+
+    766.909 ms
+    690.840 ms
+    615.604 ms
+
+All three were below the one-second database-query target.
+
+This demonstrates that rejecting all two-character searches is not technically
+required to meet the current 500,000-row performance target. A short-keyword
+indexing strategy can preserve two-character search, although it introduces
+additional index storage and write/maintenance cost that must be considered.
+
+### One-character behaviour
+
+Single-character searches were also measured to determine whether keyword
+length itself was the limiting factor.
+
+A broad search for `P` returned 416,584 of the 500,000 products and produced:
+
+    Execution Time: 1178.558 ms
+
+This exceeded the one-second target.
+
+A less-common single-character search for `Q` returned 49,880 products and
+produced:
+
+    Execution Time: 537.638 ms
+
+This was below the target.
+
+The difference shows that one-character performance is strongly affected by
+result cardinality rather than keyword length alone.
+
+For the broad `P` query, PostgreSQL selected a primary-key scan that preserved
+the required `id ASC` ordering while applying the `ILIKE` filter.
+
+A forced sequential-scan and sort alternative was also measured:
+
+    Seq Scan on products
+      Filter: ((name)::text ~~* '%P%'::text)
+
+    Sort
+      Sort Key: id
+      Sort Method: quicksort
+
+    Execution Time: 1303.811 ms
+
+This was slower than PostgreSQL's normal 1178.558 ms plan and was rejected as
+an optimization.
+
+### Current conclusion
+
+The evidence does not support treating a three-character minimum as a
+necessary consequence of the database design.
+
+At 500,000 products:
+
+- Three-character `Pro`: 100,180 matches, trigram GIN, 328.551 ms.
+- Two-character `Pr`: 200,137 matches, original path, 2402.741 ms.
+- Two-character `Pr`: experimental bigram GIN, 615.604–766.909 ms.
+- One-character `Q`: 49,880 matches, 537.638 ms.
+- One-character `P`: 416,584 matches, 1178.558 ms.
+- One-character `P`, forced sequential scan and sort: 1303.811 ms.
+
+The experiment therefore changes the earlier conclusion: two-character
+search can meet the database-query target with a different indexing strategy.
+Of the short-keyword cases measured in this investigation, the remaining
+observed breach is the broad single-character `P` query, whose result set
+contains approximately 83% of the catalogue.
+
+The bigram index remains an experimental result at this stage. Its read
+performance and 18 MB index size have been measured, but its write and
+maintenance cost have not yet been measured. It should not be treated as a
+production decision until those trade-offs are evaluated.
+
