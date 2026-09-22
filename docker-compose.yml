@@ -4,7 +4,8 @@ services:
     ports:
       - "8000:8000"
     environment:
-      DATABASE_URL: postgresql+psycopg://procart:procart@db:5432/procart
+      DATABASE_URL: ${DATABASE_URL}
+      TEST_DATABASE_URL: ${TEST_DATABASE_URL}
     depends_on:
       db:
         condition: service_healthy
