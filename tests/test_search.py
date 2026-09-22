@@ -458,3 +458,368 @@ def test_escape_like_pattern_escapes_pattern_metacharacters():
         escape_like_pattern(r"50%_off\sale")
         == r"50\%\_off\\sale"
     )
+def test_search_filters_by_category(search_client):
+    response = search_client.get(
+        "/products/search",
+        params={
+            "q": "Pro",
+            "category": "Electronics",
+        },
+    )
+
+    assert response.status_code == 200
+
+    products = response.json()["products"]
+
+    assert products
+
+    for product in products:
+        assert "pro" in product["name"].lower()
+        assert product["category"] == "Electronics"
+
+
+def test_search_filters_by_price_band(search_client):
+    response = search_client.get(
+        "/products/search",
+        params={
+            "q": "Pro",
+            "min_price": "100.00",
+            "max_price": "500.00",
+        },
+    )
+
+    assert response.status_code == 200
+
+    products = response.json()["products"]
+
+    assert products
+
+    for product in products:
+        price = float(product["price"])
+
+        assert "pro" in product["name"].lower()
+        assert 100.00 <= price <= 500.00
+
+
+def test_search_filters_by_stock_state(search_client):
+    response = search_client.get(
+        "/products/search",
+        params={
+            "q": "Pro",
+            "stock_state": "IN_STOCK",
+        },
+    )
+
+    assert response.status_code == 200
+
+    products = response.json()["products"]
+
+    assert products
+
+    for product in products:
+        assert "pro" in product["name"].lower()
+        assert product["stock_state"] == "IN_STOCK"
+def test_search_combines_category_and_price_filters(search_client):
+    response = search_client.get(
+        "/products/search",
+        params={
+            "q": "Pro",
+            "category": "Electronics",
+            "min_price": "100.00",
+            "max_price": "1000.00",
+        },
+    )
+
+    assert response.status_code == 200
+
+    products = response.json()["products"]
+
+    assert products
+
+    for product in products:
+        price = float(product["price"])
+
+        assert "pro" in product["name"].lower()
+        assert product["category"] == "Electronics"
+        assert 100.00 <= price <= 1000.00
+
+
+def test_search_combines_category_and_price_filters(search_client):
+    from sqlalchemy import text
+
+    from app.db import create_db_engine
+
+    engine = create_db_engine()
+
+    with engine.begin() as connection:
+        connection.execute(
+            text(
+                """
+                INSERT INTO products (
+                    sku,
+                    name,
+                    category,
+                    price,
+                    stock_quantity,
+                    stock_state
+                )
+                VALUES
+                    (
+                        'TEST-FILTER-COMBO-001',
+                        'FilterCombo Pro Laptop',
+                        'Electronics',
+                        250.00,
+                        10,
+                        'IN_STOCK'
+                    ),
+                    (
+                        'TEST-FILTER-COMBO-002',
+                        'FilterCombo Pro Laptop',
+                        'Electronics',
+                        1500.00,
+                        10,
+                        'IN_STOCK'
+                    ),
+                    (
+                        'TEST-FILTER-COMBO-003',
+                        'FilterCombo Pro Laptop',
+                        'Gaming',
+                        250.00,
+                        10,
+                        'IN_STOCK'
+                    )
+                """
+            )
+        )
+
+    response = search_client.get(
+        "/products/search",
+        params={
+            "q": "FilterCombo",
+            "category": "Electronics",
+            "min_price": "100.00",
+            "max_price": "1000.00",
+        },
+    )
+
+    assert response.status_code == 200
+
+    products = response.json()["products"]
+
+    assert len(products) == 1
+    assert products[0]["sku"] == "TEST-FILTER-COMBO-001"
+    assert products[0]["category"] == "Electronics"
+    assert products[0]["price"] == "250.00"
+
+def test_search_combines_price_and_stock_filters(search_client):
+    response = search_client.get(
+        "/products/search",
+        params={
+            "q": "Pro",
+            "min_price": "100.00",
+            "max_price": "1000.00",
+            "stock_state": "IN_STOCK",
+        },
+    )
+
+    assert response.status_code == 200
+
+    products = response.json()["products"]
+
+    assert products
+
+    for product in products:
+        price = float(product["price"])
+
+        assert "pro" in product["name"].lower()
+        assert 100.00 <= price <= 1000.00
+        assert product["stock_state"] == "IN_STOCK"
+
+
+def test_search_combines_all_three_filters(search_client):
+    from sqlalchemy import text
+
+    from app.db import create_db_engine
+
+    engine = create_db_engine()
+
+    with engine.begin() as connection:
+        connection.execute(
+            text(
+                """
+                INSERT INTO products (
+                    sku,
+                    name,
+                    category,
+                    price,
+                    stock_quantity,
+                    stock_state
+                )
+                VALUES
+                    (
+                        'TEST-ALL-FILTERS-001',
+                        'AllFilters Pro Laptop',
+                        'Electronics',
+                        250.00,
+                        10,
+                        'IN_STOCK'
+                    ),
+                    (
+                        'TEST-ALL-FILTERS-002',
+                        'AllFilters Pro Laptop',
+                        'Electronics',
+                        250.00,
+                        0,
+                        'OUT_OF_STOCK'
+                    ),
+                    (
+                        'TEST-ALL-FILTERS-003',
+                        'AllFilters Pro Laptop',
+                        'Electronics',
+                        1500.00,
+                        10,
+                        'IN_STOCK'
+                    ),
+                    (
+                        'TEST-ALL-FILTERS-004',
+                        'AllFilters Pro Laptop',
+                        'Gaming',
+                        250.00,
+                        10,
+                        'IN_STOCK'
+                    )
+                """
+            )
+        )
+
+    response = search_client.get(
+        "/products/search",
+        params={
+            "q": "AllFilters",
+            "category": "Electronics",
+            "min_price": "100.00",
+            "max_price": "1000.00",
+            "stock_state": "IN_STOCK",
+        },
+    )
+
+    assert response.status_code == 200
+
+    products = response.json()["products"]
+
+    assert len(products) == 1
+    assert products[0]["sku"] == "TEST-ALL-FILTERS-001"
+    assert products[0]["category"] == "Electronics"
+    assert products[0]["price"] == "250.00"
+    assert products[0]["stock_state"] == "IN_STOCK"
+def test_adding_filter_never_broadens_results(search_client):
+    category_response = search_client.get(
+        "/products/search",
+        params={
+            "q": "Pro",
+            "category": "Electronics",
+        },
+    )
+
+    combined_response = search_client.get(
+        "/products/search",
+        params={
+            "q": "Pro",
+            "category": "Electronics",
+            "stock_state": "IN_STOCK",
+        },
+    )
+
+    assert category_response.status_code == 200
+    assert combined_response.status_code == 200
+
+    category_ids = {
+        product["id"]
+        for product in category_response.json()["products"]
+    }
+    combined_ids = {
+        product["id"]
+        for product in combined_response.json()["products"]
+    }
+
+    assert combined_ids
+    assert combined_ids <= category_ids
+def test_search_rejects_unsupported_category(search_client):
+    response = search_client.get(
+        "/products/search",
+        params={
+            "q": "Pro",
+            "category": "elektronik",
+        },
+    )
+
+    assert response.status_code == 400
+    assert response.json() == {
+        "detail": "Filter 'category' does not support value 'elektronik'"
+    }
+
+
+def test_search_rejects_unsupported_stock_state(search_client):
+    response = search_client.get(
+        "/products/search",
+        params={
+            "q": "Pro",
+            "stock_state": "UNKNOWN",
+        },
+    )
+
+    assert response.status_code == 400
+    assert response.json() == {
+        "detail": "Filter 'stock_state' does not support value 'UNKNOWN'"
+    }
+def test_search_rejects_price_band_when_min_exceeds_max(search_client):
+    response = search_client.get(
+        "/products/search",
+        params={
+            "q": "Pro",
+            "min_price": "500.00",
+            "max_price": "100.00",
+        },
+    )
+
+    assert response.status_code == 400
+    assert response.json() == {
+        "detail": (
+            "Filter 'price' does not support values "
+            "min_price='500.00', max_price='100.00'"
+        )
+    }
+def test_search_filters_by_out_of_stock_state(search_client):
+    response = search_client.get(
+        "/products/search",
+        params={
+            "q": "Pro",
+            "stock_state": "OUT_OF_STOCK",
+        },
+    )
+
+    assert response.status_code == 200
+
+    products = response.json()["products"]
+    assert products
+
+    for product in products:
+        assert "pro" in product["name"].lower()
+        assert product["stock_state"] == "OUT_OF_STOCK"
+
+
+def test_search_rejects_low_stock_as_unsupported_filter(search_client):
+    response = search_client.get(
+        "/products/search",
+        params={
+            "q": "Pro",
+            "stock_state": "LOW_STOCK",
+        },
+    )
+
+    assert response.status_code == 400
+    assert response.json() == {
+        "detail": (
+            "Filter 'stock_state' does not support value 'LOW_STOCK'"
+        )
+    }
